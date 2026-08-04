@@ -1,0 +1,11 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pytl"
+version = "0.1.0"
+description = "A lightweight ETL framework for Python"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []

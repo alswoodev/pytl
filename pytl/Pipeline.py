@@ -39,7 +39,7 @@ class Pipeline:
         return self.PipelinBuilder()
 
     async def run(self):
-        stream = self.source.stream()
+        stream = self.source.execute()
         for step in self.steps:
             stream = step.execute(stream)
         async for _ in stream:

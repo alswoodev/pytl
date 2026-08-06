@@ -19,7 +19,7 @@ class Source(Step[None, Out]):
     async def execute(self) -> AsyncIterator[list[Out]]:
         batch = []
 
-        async for item in self.provide():
+        async for item in self.stream():
             batch.append(item)
             if len(batch) >= self.chunk_size:
                 yield batch

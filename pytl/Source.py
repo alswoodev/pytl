@@ -1,9 +1,10 @@
-from abc import abstractmethod, ABC
-from typing import AsyncIterator, TypeVar, Generic
+from .Step import Step
+from abc import abstractmethod
+from typing import AsyncIterator, TypeVar
 
 Out = TypeVar("Out", covariant=True)
 
-class Source(ABC, Generic[Out]):
+class Source(Step[None, Out]):
     def __init__(self, chunk_size: int = 1):
         self._set_chunk_size(chunk_size)
 

@@ -4,11 +4,12 @@ from typing import TypeVar, AsyncIterator
 
 In = TypeVar("In", contravariant=True)
 
-class Loader(Step[list[In], None]): 
+class Loader(Step[list[In], list[In]]): 
     @abstractmethod
-    async def load(self, chunk: list[In]):
+    async def load(self, chunk: list[In]) -> None:
         ...
 
-    async def execute(self, input: AsyncIterator[list[In]]) -> None:
+    async def execute(self, input: AsyncIterator[list[In]]) -> AsyncIterator[list[In]]:
         async for chunk in input:
             await self.load(chunk)
+            yield chunk

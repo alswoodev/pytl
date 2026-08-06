@@ -49,3 +49,50 @@ class AsyncProcessor(Step[list[In],list[Out]]):
                 *(self.process(item) for item in chunk),
                 return_exceptions=False, # Keep return_exceptions=False until process-level error handling is implemented.
             )                            # Switch to True when exceptions need to be collected and handled per item.
+
+class FlatProcessor(Step[list[In],list[Out]]):
+    def __init__(self, executor: Executor = None):
+        self.executor=executor
+
+    @abstractmethod
+    def process(self, input: In) -> list[Out]:
+        ...
+
+    async def execute(self, input: AsyncIterator[list[In]]) -> AsyncIterator[list[Out]]:    
+        async for chunk in input:
+            results = await asyncio.gather(
+                *(self._execute_process(item) for item in chunk),
+                return_exceptions=False, # Keep return_exceptions=False until process-level error handling is implemented.
+            )                            # Switch to True when exceptions need to be collected and handled per item.
+            yield [item for result in results for item in result]
+
+    async def _execute_process(self, input: In) -> Out:
+        if self.executor:
+            loop = asyncio.get_running_loop()
+
+            return await loop.run_in_executor(
+                self.executor,
+                self.process,
+                input,
+            )
+
+        return await asyncio.to_thread(
+            self.process,
+            input,
+        )
+
+class AsyncFlatProcessor(Step[list[In],list[Out]]):
+    def __init__(self, executor: Executor = None):
+        self.executor=executor
+
+    @abstractmethod
+    async def process(self, input: In) -> list[Out]:
+        ...
+
+    async def execute(self, input: AsyncIterator[list[In]]) -> AsyncIterator[list[Out]]:    
+        async for chunk in input:
+            results = await asyncio.gather(
+                *(self.process(item) for item in chunk),
+                return_exceptions=False, # Keep return_exceptions=False until process-level error handling is implemented.
+            )                            # Switch to True when exceptions need to be collected and handled per item.
+            yield [item for result in results for item in result]

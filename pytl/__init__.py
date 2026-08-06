@@ -2,7 +2,7 @@
 
 from .Step import Step
 from .Source import Source
-from .Processor import Processor, AsyncProcessor
+from .Processor import Processor, AsyncProcessor, FlatProcessor, AsyncFlatProcessor
 from .Loader import Loader
 from .Pipeline import Pipeline
 
@@ -11,6 +11,8 @@ __all__ = [
     "Source",
     "Processor",
     "AsyncProcessor",
+    "FlatProcessor",
+    "AsyncFlatProcessor",
     "Loader",
     "Pipeline",
 ]

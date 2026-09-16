@@ -21,6 +21,11 @@ class PolymorphicLoader(Loader[Any]):
             if args:
                 return args[0]
 
+        for base in getattr(loader.__class__, "__orig_bases__", ()):
+            args = get_args(base)
+            if args and args[0] is not Any:
+                return args[0]
+
         raise TypeError(
             f"{loader.__class__.__name__} must be instantiated as Loader[T]"
         )

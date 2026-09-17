@@ -1,12 +1,12 @@
 from pytl import Source, Processor, Loader, Pipeline
 
 class ExampleSource(Source[str]):
-    async def provide(self):
+    async def stream(self):
         for item in ["a", "b", "c", "d", "e", "f"]:
             yield item
 
 class ExampleStreamingSource(Source[str]):
-    async def provide(self):
+    async def stream(self):
         import asyncio
         while True:
             yield "abc"
@@ -24,8 +24,7 @@ batch_pipeline = (
     Pipeline
     .builder()
     .source(ExampleSource(chunk_size=2))
-    .step(ExampleProcessor())
-    .loader(ExampleLoader())
+    .steps(ExampleProcessor(), ExampleLoader())
     .build()
 )
 
@@ -33,8 +32,7 @@ streaming_pipeline = (
     Pipeline
     .builder()
     .source(ExampleStreamingSource(chunk_size=2))
-    .step(ExampleProcessor())
-    .loader(ExampleLoader())
+    .steps(ExampleProcessor(), ExampleLoader())
     .build()   
 )
 

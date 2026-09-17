@@ -1,136 +1,205 @@
-# PyTL: Asynchronous Chunked Batch Pipeline Framework
-`PyTL` is a lightweight Python-based **ETL framework** designed to resolve the fundamental trade-off between `memory overhead` and `I/O performance` during **large-scale data ingestion.**
+# PyTL
 
-By leveraging Python's AsyncIterator protocol, point-wise functional transformations, and internal execution buffering, PyTL enforces strict decoupled contracts for processing pipelines.
+PyTL is a lightweight asynchronous framework for building ETL pipelines in Python. Data flows in chunks, and you can compose `Source`, `Processor`, and `Loader` components to define ingestion, transformation, and storage stages.
 
-## 🎯 Architecture & Design Rationale
-When processing high-throughput data streams, monolithic batching often leads to memory exhaustion (Out-Of-Memory exceptions), while naive single-item I/O incurs severe network latency overhead. PyTL addresses this via a multi-granularity lifecycle model:
+## Features
+
+- Chunk-based processing built on asynchronous iterables
+- Support for both synchronous and asynchronous processing functions
+- Preservation of the original value and execution context for each transformed item
+- Flat processors that expand one input into multiple outputs
+- `CompositeLoader` for routing values to loaders by their concrete type
+- A generic API built around type hints
+
+## Requirements and Installation
+
+`pytl/models.py` currently uses some syntax, which is supported starting with Python 3.12 (for example, PEP 695 generic syntax (`class Item[T]`)), so Python 3.12 or later is recommended in practice.
+
+To install PyTL from the repository, run:
+
 ```bash
-+---------------------------------------------------------------------------------------+
-| Framework Execution Engine                                                            |
-|                                                                                       |
-|  [ Source ] (Configured with Chunk Size N)                                            |
-|  stream() <--- Template Method                                                        |
-|    |                                                                                  |
-|    +--> provide()  <-- User yields record or raw batch                                |
-|    |                                                                                  |
-|    v yields AsyncIterator[List[T_in]]                                                 |
-|                                                                                       |
-|  [ Processor ]                                                                        |
-|  execute(AsyncIterator[List[T_in]]) <--- Template Method                              |
-|    |                                                                                  |
-|    +--> process(item: T_in)  <-- User implements point-wise logic (1-by-1)            |
-|    |                                                                                  |
-|    v yields AsyncIterator[List[T_out]]                                                |
-|                                                                                       |
-|  [ Loader ]                                                                           |
-|  execute(AsyncIterator[List[T_out]]) <--- Template Method                             |
-|    |                                                                                  |
-|    +--> load(batch: List[T_out])  <-- User implements bulk write                      |
-+---------------------------------------------------------------------------------------+
+python -m pip install -e .
 ```
-## 📜 Protocol Contracts
 
-`PyTL` operates on a strict Separation of Concerns (SoC) model using the Template Method Pattern. Framework users interact exclusively with domain-level abstract methods, while internal execution templates handle asynchronous stream propagation, iteration safety, and buffering.
+To install the test dependencies and run the tests:
 
----
+```bash
+python -m pip install pytest pytest-asyncio
+pytest
+```
 
-### 1. `Source[T_out]` Contract
-* **Template Method (`stream() -> AsyncIterator[List[T_out]]`)**: 
-  Drives the root execution loop and initializes data emission. The global variable `chunk_size` controls the amount of data consumed across the downstream pipeline.
-* **User Contract (`provide() -> AsyncIterator[T_out]`)**: 
-  * **Role:** Yields raw records (`T_out`) asynchronously from upstream systems (e.g., database cursors, API pagination).
-  * **Responsibility:** Developers only need to `yield` individual items. Memory management is preserved by emitting items lazily rather than pulling full datasets into memory.
+## Quick Start
 
----
-
-### 2. `Processor[T_in, T_out]` Contract
-* **Template Method (`execute(stream) -> AsyncIterator[List[T_out], None]`)**: 
-  Encapsulates stream consumption and concurrent `process()` execution. It automatically traverses the incoming `AsyncIterator`, process concurrently and streams out valid `T_out` elements.
-* **User Contract (`process(item: T_in) -> Optional[T_out]`)**: 
-  * **Role:** Applies pure, point-wise domain transformations on a single record.
-  * **Behavioral Rules:** 
-    * Returning a transformed object `T_out` forwards it down the pipeline.
-  * **Responsibility:** Developers write stateless 1-by-1 conversion logic without implementing `async for` loops.
-
----
-
-### 3. `Loader[T_in]` Contract
-* **Template Method (`execute(stream) -> None`)**: 
-  Consumes the `AsyncIterator`. Consumed chunk's length is `chunk_size` defined by `Source`. This method flushes the chunk(buffer) to the user contract.
-* **User Contract (`load(batch: List[T_in]) -> None`)**: 
-  * **Role:** Executes bulk persistence or downstream transmission (e.g., SQL `BULK INSERT`, vector index updates).
-  * **Responsibility:** Developers process pre-chunked lists (`List[T_in]`).
-
-## 🛠️ Usage Example
-Below is a complete implementation demonstrating async streaming, transformation, and chunked batch writing using PyTL:
-
+Each component declares the types it processes using generics and implements only the methods it needs.
 
 ```python
-from pytl import Source, Processor, Loader, Pipeline
-from typing import AsyncIterator, List
+import asyncio
+from typing import AsyncIterator
 
-class ExampleSource(Source[str]):
-    async def provide(self) -> AsyncIterator[str]:
-        for item in ["a", "b", "c", "d", "e", "f"]:
-            yield item
+from pytl import Loader, Pipeline, Processor, Source
 
-class ExampleStreamingSource(Source[str]):
-    async def provide(self) -> AsyncIterator[str]:
-        import asyncio
-        while True:
-            yield "abc"
-            await asyncio.sleep(1)
 
-class ExampleProcessor(Processor[str, str]):
-    def process(self, txt: str) -> str:
-        return txt.upper()
+class NumberSource(Source[int]):
+    async def stream(self) -> AsyncIterator[int]:
+        for number in range(1, 6):
+            yield number
 
-class ExampleLoader(Loader[str]):
+
+class StringProcessor(Processor[int, str]):
+    def process(self, input: int) -> str:
+        return f"number={input}"
+
+
+class PrintLoader(Loader[str]):
     async def load(self, chunk: list[str]) -> None:
         print(chunk)
 
-batch_pipeline = (
-    Pipeline
-    .builder()
-    .source(ExampleSource(chunk_size=2))
-    .step(ExampleProcessor())
-    .loader(ExampleLoader())
-    .build()
-)
 
-streaming_pipeline = (
-    Pipeline
-    .builder()
-    .source(ExampleStreamingSource(chunk_size=2))
-    .step(ExampleProcessor())
-    .loader(ExampleLoader())
-    .build()   
-)
+async def main() -> None:
+    pipeline = (
+        Pipeline.builder()
+        .source(NumberSource(chunk_size=2))
+        .steps(StringProcessor(), PrintLoader())
+        .build()
+    )
 
-if __name__ == "__main__":
-    import asyncio
-    asyncio.run(batch_pipeline.run())
-    #   print result
-    #    ['A', 'B']
-    #    ['C', 'D']
-    #    ['E', 'F']
+    await pipeline.run()
 
-    #asyncio.run(streaming_pipeline.run())
-    #   print result
-    #  ['ABC', 'ABC']
-    #  ['ABC', 'ABC']
-    #  ['ABC', 'ABC']
-    #       ...
 
+asyncio.run(main())
 ```
 
-## 🔬 Key Engineering Considerations & Roadmap
-Backpressure Management: Currently, buffer clearing relies on a deterministic batch_size threshold. Future iterations will explore bounded queue channels to prevent producer-consumer rate imbalances.
+The output follows the source chunk size:
 
-Non-1:1 Transformations: Support for 1-to-N (flattening/expansion) topologies is under evaluation without breaking the point-wise abstraction contract.
+```text
+['number=1', 'number=2']
+['number=3', 'number=4']
+['number=5']
+```
 
-Fault Isolation & DLQ: Integration of an isolated exception handler (Dead Letter Queue) to isolate malformed records during the Transform stage without terminating the stream loop.
+## Processing Model
 
-## 📝 License & Contributions
-Distributed under the MIT License. Issues and architectural discussions regarding stream processing optimization are welcome!
+The pipeline passes data through the following stages.
+
+```text
+Source.execute()
+    -> attach context
+    -> Step.execute() ...
+    -> consume through the final Step
+```
+
+### Source
+
+`Source[T]` asynchronously generates values one at a time from `stream()`. Once `chunk_size` values have been collected, they are emitted as a chunk. Any remaining values are flushed as a separate chunk when the stream ends.
+
+```python
+class EventSource(Source[dict]):
+    async def stream(self):
+        for event in events:
+            yield event
+
+
+source = EventSource(chunk_size=100)
+```
+
+`chunk_size` must be at least 1.
+
+### Processor
+
+PyTL provides four processor types:
+
+| Class | Method to implement | Use |
+| --- | --- | --- |
+| `Processor[In, Out]` | `def process(...) -> Out` | Synchronous one-to-one transformation |
+| `AsyncProcessor[In, Out]` | `async def process(...) -> Out` | Asynchronous one-to-one transformation |
+| `FlatProcessor[In, Out]` | `def process(...) -> list[Out]` | Synchronous one-to-many transformation |
+| `AsyncFlatProcessor[In, Out]` | `async def process(...) -> list[Out]` | Asynchronous one-to-many transformation |
+
+Synchronous processors use `asyncio.to_thread()` by default to process items concurrently. You can pass a `concurrent.futures.Executor` to use a specific executor instead.
+
+```python
+class SplitWords(FlatProcessor[str, str]):
+    def process(self, input: str) -> list[str]:
+        return input.split()
+```
+
+If `process()` raises an exception for an item in a synchronous one-to-one processor, that item is omitted from the results while successful items in the same chunk continue to be processed. For a flat processor, an exception for any item causes the transformation to fail, so the one-to-many transformation is not produced.
+
+### Loader
+
+`Loader[T]` receives a list of the chunk's `Item.value` values through `load()`.
+
+```python
+class DatabaseLoader(Loader[dict]):
+    async def load(self, chunk: list[dict]) -> None:
+        await save_to_database(chunk)
+```
+
+After `load()` completes, the loader passes the input `Item` chunk unchanged to the next step. This means you can connect another step after a loader. `Pipeline.run()` consumes the entire stream until the final output is produced.
+
+### CompositeLoader
+
+Use `CompositeLoader` to send different types to their respective loaders.
+
+```python
+class IntLoader(Loader[int]):
+    async def load(self, chunk: list[int]) -> None:
+        await save_integers(chunk)
+
+
+class TextLoader(Loader[str]):
+    async def load(self, chunk: list[str]) -> None:
+        await save_texts(chunk)
+
+
+loader = CompositeLoader(IntLoader(), TextLoader())
+```
+
+Each input value is routed to the loader group that exactly matches `type(value)`. The current implementation does not search through inheritance relationships, and values without a matching loader are skipped. If multiple loaders are registered for one type, that type's chunk is passed to every matching loader.
+
+## Items and Execution Context
+
+For each source value, the pipeline creates an `Item` with the following structure:
+
+```python
+Item(
+    origin=source_value,
+    value=current_value,
+    context=ItemContext(
+        pipeline_cls_name="Pipeline",
+        pipeline_run_id="...",
+        batch_id=1,
+    ),
+)
+```
+
+- `origin`: The original source value
+- `value`: The value transformed by the current step
+- `context`: Information about the pipeline run and the original chunk
+
+For one-to-many transformations, `origin` and `context` also let you trace each result back to its source.
+
+## API Overview
+
+- `Pipeline.builder().source(source).step(step).build()`: Register steps one at a time
+- `Pipeline.builder().source(source).steps(*steps).build()`: Register multiple steps at once
+- `await pipeline.run()`: Run the pipeline
+- `Source[T]`: Define an asynchronous input stream and chunk size
+- `Processor`, `AsyncProcessor`: One-to-one transformations
+- `FlatProcessor`, `AsyncFlatProcessor`: One-to-many transformations
+- `Loader[T]`: Store chunks or send them to an external system
+- `CompositeLoader`: Distribute values to loaders by type
+
+## Development
+
+```bash
+pytest -q
+```
+
+Run the example:
+
+```bash
+python example.py
+```
+
+`example.py` contains both a finite batch pipeline and a streaming pipeline that continuously generates values. Because the streaming example runs indefinitely, uncomment `asyncio.run(streaming_pipeline.run())` when running it directly and stop the process separately.

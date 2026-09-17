@@ -3,7 +3,7 @@ from typing import get_args, Any
 from collections import defaultdict
 import asyncio
 
-class PolymorphicLoader(Loader[Any]):
+class CompositeLoader(Loader[Any]):
     def __init__(self, *loaders: Loader):
         self._loaders_by_type: dict[type, list[Loader]] = defaultdict(list)
 

@@ -4,7 +4,7 @@ from .Step import Step
 from .Source import Source
 from .Processor import Processor, AsyncProcessor, FlatProcessor, AsyncFlatProcessor
 from .Loader import Loader
-from .loader.PolymorphicLoader import PolymorphicLoader
+from .loader.CompositeLoader import CompositeLoader
 from .Pipeline import Pipeline
 
 __all__ = [
@@ -15,6 +15,6 @@ __all__ = [
     "FlatProcessor",
     "AsyncFlatProcessor",
     "Loader",
-    "PolymorphicLoader",
+    "CompositeLoader",
     "Pipeline",
 ]
